@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>2048</title>
+    <link rel="stylesheet" href="http://at.alicdn.com/t/font_2021508_tlm864n2h4s.css">
+    <link rel="stylesheet" href="./CSS/main.css" media="screen and (orientation:portrait)">
+    <link rel="stylesheet" href="./CSS/landscape.css" media="screen and (orientation:landscape)">
+    <script src="https://cdn.bootcdn.net/ajax/libs/jquery/1.10.0/jquery.js"></script>
+</head>
+<body>
+<div class="icon clearfix">
+    <i class="iconfont icon-shuaxin refresh"></i>
+    <i class="iconfont icon-shengyin volume none"></i>
+</div>
+<div class="score">
+    <p>
+        分数
+        <i class="current-score">0</i>
+    </p>
+    <p>
+        最高分
+        <i class="highest-score">0</i>
+    </p>
+</div>
+<canvas></canvas>
+<div class="game">
+    <div class="container"></div>
+</div>
+<div class="curtain">
+    <div class="start-box">
+        <button class="start">START 2048!</button>
+    </div>
+    <div class="fail-box">
+        <div class="fail">很遗憾，游戏结束!</div>
+        <button class="restart">RESTART</button>
+    </div>
+</div>
+<div class="prompt">恭喜您!已合成1024!</div>
+<audio src="./Sound/normal.mp3" class="sound normalSound" ></audio>
+<audio src="./Sound/success.mp3" class="sound successSound" ></audio>
+<audio src="./Sound/fail.mp3" class="sound failSound" ></audio>
+<script>
+    const container=document.querySelector(".container")
+    const normalSound=document.querySelector(".normalSound")
+    const successSound=document.querySelector(".successSound")
+    const failSound=document.querySelector(".failSound")
+    const currentScoreBox=document.querySelector(".current-score")
+    const highestScoreBox=document.querySelector(".highest-score")
+    const prompt=document.querySelector(".prompt")
+    const canCon=document.querySelector("canvas")
+    //手指滑动起点
+    let startX
+    let startY
+    //存储数据
+    let boxArray=new Array(16)
+    let numList=new Set()
+    //刷新按钮旋转倍数
+    let rotate=1
+    //相关状态判断
+    let isStart=false
+    let isMove=false
+    let isFirst1024=true
+    let isFirst2048=true
+    let isMuted=false
+    let isContinue=false
+    let ifDouble=false
+    //分数
+    let currentScore=0
+    let highestScore=0
+    //单位
+    let unit="vw"
+
+    init()
+    function init() {
+        //利用canvas绘制背景
+        if (window.orientation === 180 || window.orientation === 0){
+            unit="vw"
+            drawBg(window.innerWidth)
+        }else if (window.orientation === 90 || window.orientation === -90 ){
+            unit="vh"
+            drawBg(window.innerHeight)
+        }
+        //获取进度
+        let progress = getCookie("boxArray")
+        if(progress){
+            let arr = JSON.parse(progress)
+            isContinue=arr.some((item)=>{
+                return Boolean(item)
+            })
+            if(isContinue){
+                arr.forEach((item, index, arr) => {
+                    boxArray[index] = arr[index]
+                    if (boxArray[index]) {
+                        let box = document.createElement("div")
+                        box.innerHTML = boxArray[index].value
+                        $(box)
+                            .css({
+                                width:22.5+unit,
+                                height:22.5+unit,
+                                top:Math.floor(index/4)*24.5+1+unit,
+                                left:index%4*24.5+1+unit,
+                            })
+                        color(box)
+                        container.appendChild(box)
+                        setTimeout(()=>{
+                            box.style.transform=`scale(1)`
+                        },10)
+                        boxArray[index].el = box
+                        boxArray[index].moveX=0
+                        boxArray[index].moveY=0
+                        numList.add(index)
+                    }
+                })
+                ifFail(boxArray)
+            }
+        }
+        //获取上次游戏分数
+        let score = getCookie("currentScore")
+        if (score) {
+            currentScore = score*1
+            currentScoreBox.innerHTML = currentScore
+        }
+        //获取上次游戏最高分
+        let hScore = getCookie("highestScore")
+        if (hScore) {
+            highestScore = hScore*1
+            highestScoreBox.innerHTML = highestScore
+        }
+        //开始游戏按钮点击事件
+        $(".start").click(function () {
+            normalSound.volume = 0.6
+            successSound.volume = 0
+            failSound.volume = 0
+            normalSound.play()
+            successSound.play()
+            successSound.pause()
+            failSound.play()
+            failSound.pause()
+            $(".curtain").hide()
+            $(this).hide()
+            isStart = true
+            if(!isContinue){
+                new CreatNewNum()
+                currentScoreBox.innerHTML = 0
+            }
+        })
+        //刷新游戏点击事件
+        $(".refresh").click(function () {
+            if (isStart) {
+                let deg = rotate * 360
+                this.style.transform = `rotate(${deg}deg)`
+                rotate++
+                playNormalSound()
+                numList.clear()
+                boxArray.forEach((item, index, arr) => {
+                    arr[index] = null
+                })
+                container.innerHTML = ""
+                new CreatNewNum()
+                currentScoreBox.innerHTML = 0
+                currentScore=0
+            }
+        })
+        //音量点击事件，实现静音效果
+        $(".volume").click(function () {
+            if (isStart) {
+                if (!isMuted) {
+                    $(this)
+                        .removeClass("none")
+                        .addClass("block")
+                    normalSound.volume = 0
+                    successSound.volume = 0
+                    failSound.volume = 0
+                    isMuted = true
+                } else {
+                    $(this)
+                        .removeClass("block")
+                        .addClass("none")
+                    normalSound.volume = 0.6
+                    successSound.volume = 0.2
+                    failSound.volume = 1
+                    isMuted = false
+                }
+            }
+        })
+        //游戏失败重新开始点击事件
+        $(".restart").click(function () {
+            playNormalSound()
+            $(".curtain").hide()
+            isStart = true
+            normalSound.play()
+            numList.clear()
+            boxArray.forEach((item, index, arr) => {
+                arr[index] = null
+            })
+            container.innerHTML = ""
+            new CreatNewNum()
+            currentScore = 0
+            currentScoreBox.innerHTML = 0
+        })
+        //防止向下滑动时，页面一起移动
+        document.addEventListener("touchmove", (e) => {
+            e.preventDefault()
+        }, {passive: false})
+
+        //页面退出前保存数据到cookie
+        window.onbeforeunload = function() {
+            //设置cookie,存储数据
+            let timeInterval
+            let a=new Date(new Date().getFullYear(),new Date().getMonth(),new Date().getDate()+1,0,0,0)
+            let b=new Date()
+            if(b.getDay()===0){
+                timeInterval=a-b.valueOf()
+            }else{
+                timeInterval=a-b.valueOf()+(7-b.getDay())*24*60*60*1000
+            }
+            let date=new Date(b.getTime()+timeInterval)
+            document.cookie=`highestScore=${highestScore};expires=${date}`
+            document.cookie=`currentScore=${currentScore};expires=${date}`
+            let jsonStr=JSON.stringify(boxArray)
+            document.cookie=`boxArray=${jsonStr};expires=${date}`
+        }
+        //横竖屏切换，元素重绘
+        window.addEventListener("onorientationchange" in window ? "orientationchange" : "resize", function(e) {
+            if (window.orientation === 180 || window.orientation === 0) {
+                unit="vw"
+                setTimeout(()=>{
+                    drawBg(window.innerWidth)
+                },500)
+            }else if (window.orientation === 90 || window.orientation === -90 ){
+                unit="vh"
+                setTimeout(()=>{
+                    drawBg(window.innerHeight)
+                },500)
+            }
+            boxArray.forEach((item,index) => {
+                if (item) {
+                    $(item.el)
+                        .css({
+                            width:22.5+unit,
+                            height:22.5+unit,
+                            top:Math.floor(index/4)*24.5+1+unit,
+                            left:index%4*24.5+1+unit,
+                            transform:"translate(0,0)",
+                        })
+                    item.moveX=0
+                    item.moveY=0
+                }
+            })
+        }, false);
+    }
+    //创建新的数字对象
+    class CreatNewNum{
+        constructor() {
+            let box=document.createElement("div")
+            do{
+                this.num = Math.floor(Math.random()*16)
+            }while(numList.has(this.num)&&numList.size<16);
+            if(numList.size<16){
+                numList.add(this.num)
+                if(Math.random() > 0.5){
+                    box.className="numIs2"
+                    box.innerHTML = 2
+                } else {
+                    box.className="numIs4"
+                    box.innerHTML = 4
+                }
+                container.appendChild(box)
+                $(box)
+                    .css({
+                        width:22.5+unit,
+                        height:22.5+unit,
+                        top:Math.floor(this.num/4)*24.5+1+unit,
+                        left:this.num%4*24.5+1+unit,
+                    })
+                setTimeout(()=>{
+                    box.style.transform=`scale(1)`
+                },10)
+                this.el=box
+                this.x=this.num%4
+                this.y=Math.floor(this.num/4)
+                this.value=box.innerHTML
+                this.moveX=0
+                this.moveY=0
+                boxArray[this.num]=this
+                ifFail(boxArray)
+            }
+        }
+    }
+    //手指触屏监听，记录触屏位置
+    container.addEventListener("touchstart",function(e){
+        startX=e.targetTouches[0].clientX
+        startY=e.targetTouches[0].clientY
+    })
+    //手指滑动监听，执行移动函数，实现数字移动（内部执行后取消该监听，防抖）
+    container.addEventListener("touchmove",move)
+    //手指离开监听，重新添加手指滑动监听
+    container.addEventListener("touchend",function(){
+        container.addEventListener("touchmove",move)
+    })
+    //数字移动处理函数
+    function move(e){
+        e.preventDefault()
+        let x=e.targetTouches[0].clientX
+        let y=e.targetTouches[0].clientY
+        if((startY-y)>10&&(startY-y)>Math.abs(x-startX)){
+            upRender()
+        }else if((y-startY)>10&&(y-startY)>Math.abs(x-startX)){
+            downRender()
+        }else if((startX-x)>10&&Math.abs(y-startY)<(startX-x)){
+            leftRender()
+        }else if((x-startX)>10&&Math.abs(y-startY)<(x-startX)){
+            rightRender()
+        }
+        afterRender()
+    }
+    //向上滑动后渲染
+    function upRender(){
+        boxArray.forEach((item,index,arr)=>{
+            if(item){
+                let i=item.num
+                let x=item.x
+                let y=item.y
+                //处理第二行
+                if(y===1){
+                    if(!arr[i-4]){
+                        update(arr,i,i-4,x,y-1,false,0,-24.5)
+                    }else if(arr[i].value===arr[i-4].value){
+                        update(arr,i,i-4,x,y-1,true,0,-24.5)
+                        //标记来自于第二行，用于第三行执行时判断
+                        arr[i-4].from=1
+                    }
+                }
+                //处理第三行
+                if(y===2){
+                    if(!arr[i-4]&&!arr[i-8]){
+                        update(arr,i,i-8,x,y-2,false,0,-49)
+                    }else if(!arr[i-4]&&arr[i-8]&&arr[i].value===arr[i-8].value&&arr[i-8].from!==1){
+                        update(arr,i,i-8,x,y-2,true,0,-49)
+                        //标记来自于第三行，用于第四行执行时判断
+                        arr[i-8].from=2
+                    }else if(!arr[i-4]&&arr[i-8]&&(arr[i].value!==arr[i-8].value||arr[i-8].from===1)){
+                        update(arr,i,i-4,x,y-1,false,0,-24.5)
+                    }else if(arr[i-4]&&arr[i].value===arr[i-4].value){
+                        update(arr,i,i-4,x,y-1,true,0,-24.5)
+                        //标记来自于第三行，用于第四行执行时判断
+                        arr[i-4].from=2
+                    }
+                }
+                //处理第四行
+                if(y===3){
+                    if(!arr[i-4]&&!arr[i-8]&&!arr[i-12]){
+                        update(arr,i,i-12,x,y-3,false,0,-73.5)
+                    }else if(!arr[i-4]&&!arr[i-8]&&arr[i-12]&&arr[i].value===arr[i-12].value&&arr[i-12].from!==2&&arr[i-12].from!==1){
+                        update(arr,i,i-12,x,y-3,true,0,-73.5)
+                    }else if(!arr[i-4]&&!arr[i-8]&&arr[i-12]&&(arr[i].value!==arr[i-12].value||arr[i-12].from===2||arr[i-12].from===1)) {
+                        update(arr,i,i-8,x,y-2,false,0,-49)
+                    }else if(!arr[i-4]&&arr[i-8]&&arr[i].value===arr[i-8].value&&arr[i-8].from!==2){
+                        update(arr,i,i-8,x,y-2,true,0,-49)
+                    }else if(!arr[i-4]&&arr[i-8]&&(arr[i].value!==arr[i-8].value||arr[i-8].from===2)){
+                        update(arr,i,i-4,x,y-1,false,0,-24.5)
+                    }else if(arr[i-4]&&arr[i].value===arr[i-4].value){
+                        update(arr,i,i-4,x,y-1,true,0,-24.5)
+                    }
+                }
+            }
+        })
+        //将标记置零
+        boxArray.forEach((item)=>{
+            if(item&&item.from)item.from=0
+        })
+    }
+    //更改数组遍历方式
+    function downForEach(callBack){
+        let l=this.length
+        for (let i = l-1; i >=0; i--) {
+            callBack(this[i],i,this)
+        }
+    }
+    Array.prototype.downForEach=downForEach
+    //向下滑动后渲染
+    function downRender(){
+        boxArray.downForEach((item,index,arr)=>{
+            if(item){
+                let i=item.num
+                let x=item.x
+                let y=item.y
+                if(y===2){
+                    if(!arr[i+4]){
+                        update(arr,i,i+4,x,y+1,false,0,24.5)
+                    }else if(arr[i].value===arr[i+4].value){
+                        update(arr,i,i+4,x,y+1,true,0,24.5)
+                        arr[i+4].from=1
+                    }
+                }
+                if(y===1){
+                    if(!arr[i+4]&&!arr[i+8]){
+                        update(arr,i,i+8,x,y+2,false,0,49)
+                    }else if(!arr[i+4]&&arr[i+8]&&arr[i].value===arr[i+8].value&&arr[i+8].from!==1){
+                        update(arr,i,i+8,x,y+2,true,0,49)
+                        arr[i+8].from=2
+                    } else if(!arr[i+4]&&arr[i+8]&&(arr[i].value!==arr[i+8].value||arr[i+8].from===1)){
+                        update(arr,i,i+4,x,y+1,false,0,24.5)
+                    }else if(arr[i+4]&&arr[i].value===arr[i+4].value){
+                        update(arr,i,i+4,x,y+1,true,0,24.5)
+                        arr[i+4].from=2
+                    }
+                }
+                if(y===0){
+                    if(!arr[i+4]&&!arr[i+8]&&!arr[i+12]){
+                        update(arr,i,i+12,x,y+3,false,0,73.5)
+                    }else if(!arr[i+4]&&!arr[i+8]&&arr[i+12]&&arr[i].value===arr[i+12].value&&arr[i+12].from!==2&&arr[i+12].from!==1){
+                        update(arr,i,i+12,x,y+3,true,0,73.5)
+                    }else if(!arr[i+4]&&!arr[i+8]&&arr[i+12]&&(arr[i].value!==arr[i+12].value||arr[i+12].from===2||arr[i+12].from===1)) {
+                        update(arr,i,i+8,x,y+2,false,0,49)
+                    }else if(!arr[i+4]&&arr[i+8]&&arr[i].value===arr[i+8].value&&arr[i+8].from!==2){
+                        update(arr,i,i+8,x,y+2,true,0,49)
+                    }else if(!arr[i+4]&&arr[i+8]&&(arr[i].value!==arr[i+8].value||arr[i+8].from===2)){
+                        update(arr,i,i+4,x,y+1,false,0,24.5)
+                    }else if(arr[i+4]&&arr[i].value===arr[i+4].value){
+                        update(arr,i,i+4,x,y+1,true,0,24.5)
+                    }
+                }
+            }
+        })
+        boxArray.forEach((item)=>{
+            if(item&&item.from)item.from=0
+        })
+    }
+    //更改数组遍历方式
+    function leftForEach(callBack){
+        let l=this.length
+        for (let i = 0; i <l; i+=4) {
+            callBack(this[i],i,this)
+            if(i>11&&i<15)i=i-15
+        }
+    }
+    Array.prototype.leftForEach=leftForEach
+    //向左滑动后渲染
+    function leftRender(){
+        boxArray.leftForEach((item,index,arr)=>{
+            if(item){
+                let i=item.num
+                let x=item.x
+                let y=item.y
+                if(x===1){
+                    if(!arr[i-1]){
+                        update(arr,i,i-1,x-1,y,false,-24.5,0)
+                    }else if(arr[i].value===arr[i-1].value){
+                        update(arr,i,i-1,x-1,y,true,-24.5,0)
+                        arr[i-1].from=1
+                    }
+                }
+                if(x===2){
+                    if(!arr[i-1]&&!arr[i-2]){
+                        update(arr,i,i-2,x-2,y,false,-49,0)
+                    }else if(!arr[i-1]&&arr[i-2]&&arr[i].value===arr[i-2].value&&arr[i-2].from!==1){
+                        update(arr,i,i-2,x-2,y,true,-49,0)
+                        arr[i-2].from=2
+                    } else if(!arr[i-1]&&arr[i-2]&&(arr[i].value!==arr[i-2].value||arr[i-2].from===1)){
+                        update(arr,i,i-1,x-1,y,false,-24.5,0)
+                    }else if(arr[i-1]&&arr[i].value===arr[i-1].value){
+                        update(arr,i,i-1,x-1,y,true,-24.5,0)
+                        arr[i-1].from=2
+                    }
+                }
+                if(x===3){
+                    if(!arr[i-1]&&!arr[i-2]&&!arr[i-3]){
+                        update(arr,i,i-3,x-3,y,false,-73.5,0)
+                    }else if(!arr[i-1]&&!arr[i-2]&&arr[i-3]&&arr[i].value===arr[i-3].value&&arr[i-3].from!==2&&arr[i-3].from!==1){
+                        update(arr,i,i-3,x-3,y,true,-73.5,0)
+                    }else if(!arr[i-1]&&!arr[i-2]&&arr[i-3]&&(arr[i].value!==arr[i-3].value||arr[i-3].from===2||arr[i-3].from===1)) {
+                        update(arr,i,i-2,x-2,y,false,-49,0)
+                    }else if(!arr[i-1]&&arr[i-2]&&arr[i].value===arr[i-2].value&&arr[i-2].from!==2){
+                        update(arr,i,i-2,x-2,y,true,-49,0)
+                    }else if(!arr[i-1]&&arr[i-2]&&(arr[i].value!==arr[i-2].value||arr[i-2].from===2)){
+                        update(arr,i,i-1,x-1,y,false,-24.5,0)
+                    }else if(arr[i-1]&&arr[i].value===arr[i-1].value){
+                        update(arr,i,i-1,x-1,y,true,-24.5,0)
+                    }
+                }
+            }
+        })
+        boxArray.forEach((item)=>{
+            if(item&&item.from)item.from=0
+        })
+    }
+    //更改数组遍历方式
+    function rightForEach(callBack){
+        let l=this.length
+        for (let i = l-1; i >=0; i-=4) {
+            callBack(this[i],i,this)
+            if(i<4&&i>0)i=i+15
+        }
+    }
+    Array.prototype.rightForEach=rightForEach
+    //向右滑动后渲染
+    function rightRender(){
+        boxArray.rightForEach((item,index,arr)=>{
+            if(item){
+                let i=item.num
+                let x=item.x
+                let y=item.y
+                if(x===2){
+                    if(!arr[i+1]){
+                        update(arr,i,i+1,x+1,y,false,24.5,0)
+                    }else if(arr[i].value===arr[i+1].value){
+                        update(arr,i,i+1,x+1,y,true,24.5,0)
+                        arr[i+1].from=1
+                    }
+                }
+                if(x===1){
+                    if(!arr[i+1]&&!arr[i+2]){
+                        update(arr,i,i+2,x+2,y,false,49,0)
+                    }else if(!arr[i+1]&&arr[i+2]&&arr[i].value===arr[i+2].value&&arr[i+2].from!==1){
+                        update(arr,i,i+2,x+2,y,true,49,0)
+                        arr[i+2].from=2
+                    }else if(!arr[i+1]&&arr[i+2]&&(arr[i].value!==arr[i+2].value||arr[i+2].from===1)){
+                        update(arr,i,i+1,x+1,y,false,24.5,0)
+                    }else if(arr[i+1]&&arr[i].value===arr[i+1].value){
+                        update(arr,i,i+1,x+1,y,true,24.5,0)
+                        arr[i+1].from=2
+                    }
+                }
+                if(x===0){
+                    if(!arr[i+1]&&!arr[i+2]&&!arr[i+3]){
+                        update(arr,i,i+3,x+3,y,false,73.5,0)
+                    }else if(!arr[i+1]&&!arr[i+2]&&arr[i+3]&&arr[i].value===arr[i+3].value&&arr[i+3].from!==2&&arr[i+3].from!==1){
+                        update(arr,i,i+3,x+3,y,true,73.5,0)
+                    }else if(!arr[i+1]&&!arr[i+2]&&arr[i+3]&&(arr[i].value!==arr[i+3].value||arr[i+3].from===2||arr[i+3].from===1)) {
+                        update(arr,i,i+2,x+2,y,false,49,0)
+                    }else if(!arr[i+1]&&arr[i+2]&&arr[i].value===arr[i+2].value&&arr[i+2].from!==2){
+                        update(arr,i,i+2,x+2,y,true,49,0)
+                    }else if(!arr[i+1]&&arr[i+2]&&(arr[i].value!==arr[i+2].value||arr[i+2].from===2)){
+                        update(arr,i,i+1,x+1,y,false,24.5,0)
+                    }else if(arr[i+1]&&arr[i].value===arr[i+1].value){
+                        update(arr,i,i+1,x+1,y,true,24.5,0)
+                    }
+                }
+            }
+        })
+        boxArray.forEach((item)=>{
+            if(item&&item.from)item.from=0
+        })
+    }
+    //更新位置等相关数据信息
+    function update(arr,i,j,x,y,double=false,moveX,moveY){
+        isMove=true
+        if(double){container.removeChild(arr[j].el)}
+        arr[i].moveX+=moveX
+        arr[i].moveY+=moveY
+        arr[i].el.style.transform=`translate(${arr[i].moveX}${unit},${arr[i].moveY}${unit})`
+        arr[j]=arr[i]
+        arr[j].num=j
+        arr[j].x=x
+        arr[j].y=y
+        if(double){
+            arr[j].value=String(arr[i].value*2)
+            arr[j].el.innerHTML=arr[j].value
+            color(arr[j].el)
+            currentScore+=arr[j].value*1
+            ifDouble=true
+            if(arr[j].value==="1024"&&isFirst1024){
+                isFirst1024=false
+                prompt.style.top="10px"
+                setTimeout(()=>{
+                    prompt.style.top="-20px"
+                },2000)
+            }
+            if(arr[j].value==="2048"&&isFirst2048){
+                isFirst2048=false
+                prompt.style.top="10px"
+                prompt.innerHTML="恭喜您!已合成2048!"
+                setTimeout(()=>{
+                    prompt.style.top="-20px"
+                },2000)
+            }
+        }
+        numList.delete(i)
+        numList.add(j)
+        arr[i]=null
+    }
+    //完成渲染后进行相关处理，更新分数，播放音效，创建新的函数，取消监听
+    function afterRender(){
+        if(isMove) {
+            currentScoreBox.innerHTML = currentScore
+            if (currentScore > highestScore) {
+                highestScore = currentScore
+                highestScoreBox.innerHTML = currentScore
+            } else {
+                highestScoreBox.innerHTML = highestScore
+            }
+            if (ifDouble) {
+                playSuccessSound()
+                ifDouble = false
+            } else {
+                playNormalSound()
+            }
+            setTimeout(() => {
+                //创建新数字
+                new CreatNewNum()
+            }, 80)
+            container.removeEventListener("touchmove", move)
+            isMove = false
+        }
+    }
+    //只移动时播放音效
+    function playNormalSound(){
+        normalSound.currentTime=0
+        normalSound.play()
+        setTimeout(()=>{
+            normalSound.pause()
+        },400)
+    }
+    //合成数组时播放音效
+    function playSuccessSound(){
+        if(!isMuted){
+            successSound.volume=0.2
+            successSound.currentTime=0
+            successSound.play()
+            setTimeout(()=>{
+                successSound.pause()
+            },400)
+        }else{
+            successSound.volume=0
+        }
+    }
+    //游戏失败处理函数
+    function ifFail(arr){
+        let flag=true
+        if(numList.size===16){
+            arr.forEach((item,index,arr)=>{
+                if(item.x===0||item.x===1||item.x===2){
+                    if(arr[index].value===arr[index+1].value){
+                        flag=false
+                    }
+                }
+                if(item.y===0||item.y===1||item.y===2){
+                    if(arr[index].value===arr[index+4].value){
+                        flag=false
+                    }
+                }
+            })
+            if(flag){
+                setTimeout(()=>{
+                    $(".curtain").show()
+                    $(".failBox").show()
+                    $(".startBox").hide()
+                    isStart=false
+                    if(isMuted){
+                        failSound.volume=0
+                    }else{
+                        failSound.volume=1
+                        failSound.play()
+                    }
+                },2000)
+            }
+        }
+    }
+    //合成新的数字后，渲染颜色
+    function color(obj) {
+        $(obj).removeClass()
+        switch (obj.innerHTML) {
+            case "2":
+                $(obj).addClass("numIs2")
+                break;
+            case "4":
+                $(obj).addClass("numIs4")
+                break;
+            case "8":
+                $(obj).addClass("numIs8")
+                break;
+            case "16":
+                $(obj).addClass("numIs16")
+                break;
+            case "32":
+                $(obj).addClass("numIs32")
+                break;
+            case "64":
+                $(obj).addClass("numIs64")
+                break;
+            case "128":
+                $(obj).addClass("numIs128")
+                break;
+            case "256":
+                $(obj).addClass("numIs256")
+                break;
+            case "512":
+                $(obj).addClass("numIs512")
+                break;
+            case "1024":
+                $(obj).addClass("numIs1024")
+                break;
+            case "2048":
+                $(obj).addClass("numIs2048")
+                break;
+            case "4096":
+                $(obj).addClass("numIs4096")
+                break;
+            case "8192":
+                $(obj).addClass("numIs8192")
+                break;
+        }
+    }
+    function getCookie(name){
+        let cookieStr = decodeURIComponent(document.cookie)
+        let start = cookieStr.indexOf(name + '=')
+        if(start === -1){
+            return null
+        }else{
+            // 查询结束的位置
+            let end = cookieStr.indexOf(";", start)
+            if(end === -1){
+                end = cookieStr.length
+            }
+            let str = cookieStr.substring(start,end)
+            return str.split("=")[1]
+        }
+    }
+    //绘制背景
+    function drawBg(size){
+        let ctx=canCon.getContext("2d")
+        ctx.clearRect(0,0,canCon.width,canCon.height)
+        canCon.width=size
+        canCon.height=size
+        ctx.beginPath()
+        ctx.fillStyle="#ccc3b3"
+        ctx.lineWidth=1
+        for (let i = 0; i < 4; i++) {
+            for (let j = 0; j < 4; j++) {
+                ctx.moveTo((2+24.5*i)*size/100+10,(2+24.5*j)*size/100+1)
+                ctx.arcTo((2+24.5*i+22.5)*size/100-1,(2+24.5*j)*size/100+1,(2+24.5*i+22.5)*size/100-1,(2+24.5*j)*size/100+10,10)
+                ctx.arcTo((2+24.5*i+22.5)*size/100-1,(2+24.5*j+22.5)*size/100-1,(2+24.5*i+22.5)*size/100-10,(2+24.5*j+22.5)*size/100-1,10)
+                ctx.arcTo((2+24.5*i)*size/100+1,(2+24.5*j+22.5)*size/100-1,(2+24.5*i)*size/100+1,(2+24.5*j+22.5)*size/100-10,10)
+                ctx.arcTo((2+24.5*i)*size/100+1,(2+24.5*j)*size/100+1,(2+24.5*i)*size/100+10,(2+24.5*j)*size/100+1,10)
+                ctx.fill()
+            }
+        }
+        ctx.closePath()
+    }
+</script>
+</body>
+</html>
